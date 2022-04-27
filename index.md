@@ -1,63 +1,71 @@
-# BloXmove Dev : Claims / Credential Exchange 
+# BloXmove Dev : Usage of Verifiable Credentials
+Attestations in the MBP basic business architecture can be represented by off-chain verifiable credentials according to the W3C specification, especially when their content contains sensitive information that should not be visible on a ledger.
+The following describes the technical flows of verifiable credential issuance and validation, using the example of user claims (driverLicense, minAge) that a service consumer gets attested by a KYC Provider and presents it to the Fleet Node for proving to fulfil the requirements to rent a car.
+![This is an image](https://github.com/yatin902/test/blob/main/2113502825/2141486701%20(1).png?raw=true)
 
-BloXmove generally uses a 1-step process when requesting an action, e.g. when requesting a rental.
+## Issuance: User gets Verifiable Credential(s) from KYC Provider
+The flow above assumes the user already has a private/public key pair and associated DID in the Fleet2Share (F2S) app. The F2S App triggers a request to get verifications from the Sample KYC Service, passing on the user DID, some proof data about the claims, and a signature by the private/public key pair that is associated to the user DID. The Sample KYC Service resolves the user DID to validate it exists and retrieve the public key(s) authorised to sign on behalf of this DID. With that information, the Sample KYC Service can validate the signature.
+After successfully validating the real-world proofs, the Sample KYC Service creates the Verifiable Credentials and adds a proof signed with a private/public key pair that belongs to the DID of the KYC Provider. Every VC gets a unique identifier and can be optionally “anchored” in a Credential Registry Contract on the blockchain, which typically stores the unique identifier along with the issuer identity and the credential status information. The issuer can then later update the status of the credential and thus revoke it.
+The VCs are returned to the F2S app, where they are stored in the wallet.
+A VC returned could look like the following (using ethr for the DIDs):
 
 ```javascript
-export class RentalRequest implements IRentalRequest {
-
-  constructor(vehicleDID: string,
-              consumerDID: string,
-              packageId: number,
-              timestamp?: number,
-              consumerSignature?: string,
-              verifiablePresentation?: IVerifiablePresentation | string) {
-    this.vehicleDID = vehicleDID;
-    this.consumerDID = consumerDID;
-    this.packageId = packageId;
-    this.timestamp = timestamp;
-    this.consumerSignature = consumerSignature;
-    this.verifiablePresentation = verifiablePresentation;
-  }
+{
+ "@context": [ "https://www.w3.org/2018/credentials/v1" ],
+  "type": [ "VerifiableCredential", "DriverLicenseCredential" ],
+  // unique identifier of the VC
+  "id": "6e90a3e2bf3823e52eceb0f81373eb58b1a0a238965f0d4388ab9ce9ceeddfd3",  
+  "issuer": "did:ethr:blxm-dev:0x76fF7A937699D5Fdc02E70B23450deF8F321d3fB",
+  "credentialSubject": {
+    // id of the main subject of the claim
+    "id": "did:ethr:blxm-dev:0xEc1818147dA3B090049d08059966bd6B2E6Cc4F9",
+    "driverLicense": true
+  },
+  "validFrom": "2020-02-25T09:48:57.660Z",
+  "proof": { 
+    // signature by issuer
+    "type": "EcdsaSecp256k1RecoveryMethod2020",
+    "created": "2020-02-25T09:48:58.451Z",
+    "proofPurpose": "assertionMethod",
+    // this marks the public key in the DID document of the issuer to validate the issuer's signature
+    "verificationMethod": "did:ethr:blxm-dev:0x76fF7A937699D5Fdc02E70B23450deF8F321d3fB#controller",
+    // actual signature value
+    "proofValue": "0xe55b271d5ebe3341b8f6d6fcf2468fb5c4308fe121d63ece6f65db93d8ef355e058cd317d81c2f0fb501f41727672ff1d5daa6c90b5f79f79ac28eb3e326cbae1c" 
+  } 
 }
 ```
 
-This allow the request to be processed immediately as the requesting participant is required to provide sufficient information for the service participant to verify her authorization.
-
-## Alternative Flows for a Claims / Credential Exchange
-### Decentralized Identity Foundation
-
-The DIF lists several approaches for requesting and presenting credentials: https://github.com/decentralized-identity/papers/blob/master/Credential%20Exchange%20Message%20Formats%20Survey.md
-
-The presentation exchange is described here: https://identity.foundation/presentation-exchange/ with a library in typescript: https://github.com/Sphereon-Opensource/pe-js A further sample is by the DIF https://github.com/decentralized-identity/presentation-exchange/tree/master/sample-implementation
-
-The DIF further proposes a mechanism to describe the requested information from a validating participant to a wallet: https://identity.foundation/credential-manifest/ Their description of the exchange protocol has not advanced beyond draft status: WACI PeX (Wallet And Credential Interactions Presentation Exchange) https://identity.foundation/working-groups/claims-credentials.html#:~:text=open%20source%20implementations.-,AreWeWaciYet%3F,-Repo.
-
-### Sphereon
-https://github.com/Sphereon-Opensource/pe-js
-
-### Hyperledger Aries
-Aries has developed a series of standards (current: https://github.com/hyperledger/aries-rfcs/blob/eace815c3e8598d4a8dd7881d8c731fdb2bcc0aa/features/0037-present-proof/README.md proposed: https://github.com/hyperledger/aries-rfcs/blob/eace815c3e8598d4a8dd7881d8c731fdb2bcc0aa/features/0454-present-proof-v2/README.md superseded: https://hackmd.io/@QNKW9ANJRy6t81D7IfgiZQ/HkklVzww4?type=view that describe a flow where both parties can initiate the credential exchange. However, even if the requesting participant is initiating the exchange, the exact scope of information requested is defined by the validating participant:
-
-<img src="https://github.com/gaganpreets529mingltech/21/blob/main/4493836318.png">
-
-Hyperledger Aries & BBS+ Signatures
-
-#### W3C
-The https://w3c-ccg.github.io/credential-handler-api/ (draft) defines capabilities that enable third-party Web applications to handle credential requests and storage (ie. how to build Wallets for Websites).
-
-#### uPort
-uPort defines the Selective disclosure flow https://github.com/uport-project/specs/blob/develop/flows/selectivedisclosure.md for an app requesting credentials from the uPort wallet.
-
-#### Jolocom
-https://jolocom-lib.readthedocs.io/en/latest/interactionFlows.html is also defining a validator-initiated request flow for credentials:
-
+## Validation: Fleet Node validates claims
+The flow above assumes that the Fleet Node is configured with a list of trusted issuer DIDs, i.e. the ids of KYC Services or Id Providers the Fleet Operator trusts.
+The validation is done as part of a user request, e.g. the F2S app requesting the rental of a car. In the payload of this request the F2S app passes on a Verifiable Presentation of the previously received VCs signed by the private/public key pair that belongs to the user DID. The Verifiable Presentation could look like the example below.
 ```javascript
-// An instance of an identityWallet is required at this point
-const credentialRequest = await identityWallet.create.interactionTokens.request.share({
-  callbackURL: 'https://example.com/authentication/',
-  credentialRequirements: [{
-    type: ['Credential', 'ProofOfEmailCredential'],
-    constraints: []
-  }],
-}, password)
+{
+  "@context": [ "https://www.w3.org/2018/credentials/v1" ],
+  "type": "VerifiablePresentation",
+  "verifiableCredential": [
+    ...
+    // full verifiable credential object from above
+    ...
+  ],
+  "proof": [{
+    "type": "EcdsaSecp256k1RecoveryMethod2020",
+    "created": "2020-03-18T21:19:10Z",
+    "proofPurpose": "authentication",
+    // this marks the public key in the DID document of the user to validate the user's signature
+    "verificationMethod": "did:ethr:blxm-dev:0x76fF7A937699D5Fdc02E70B23450deF8F321d3fB#controller",
+    // user signature value
+    "proofValue": "0xab4..."
+  }]
+}
 ```
+
+The Fleet Node validates the information in the following way:
+- Check if any of the presented VCs is expired
+- For each of the VCs, verify that the issuer id is in the list of trusted issuers
+- Resolve user DID, validate existence of user DID and user signature in proof of Verifiable Presentation
+- For each of the VCs, resolve the issuer DID, validate existence of issuer DID and issuer signature in proof of VC
+- (Optional in case of revocation): For each of the VCs, check the Credential Registry Contract for the status, validate it has the expected status
+If one of the checks or validations fails, the Fleet Node should reject the request.
+
+## DID Resolver and Credential Registry Contract
+The DID Resolver and Credential Registry Contract components mentioned in the previous description are indicated to make the functionality more clear. In practice they are both part of the underlying blockchain network implementation (e.g. Ethereum, Ontology) and should be abstracted in the Asset Service implementation.
